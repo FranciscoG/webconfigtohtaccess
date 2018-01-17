@@ -3,38 +3,71 @@
 var fs = require('fs');
 var xmljs = require('xml-js');
 var _ = require('lodash');
-var file = process.argv.slice(2);
+var argv = require('minimist')(process.argv.slice(2));
+
+var file = argv._[0];
+var status = argv.status || '';
+// replace trailing forward slash
+var prefix = argv.prefix || '';
+
 
 function displayHelp(){
   var helptext = `
   Web.Config to .htaccess Rewrite Rule converter
   Usage:
-    ./convert.js path/to/your/web.config`;
+    node wc2hta.js Web.config [--status 301] [--prefix https://wwww.something.com]
+
+    --status      add an http status to your redirect
+    --prefix      add a domain to the domain destination 
+  `;
   console.log(helptext);
 }
 
+/*
+  Check for required arguments
+ */
 if ( !file ) {
   displayHelp();
   process.exit(1);
 }
 
 
-function createRewriteRule(match, dest) {
-  return `RewriteRule ${match} ${dest} \n`;
+function createRewriteRule(match, dest, comment) {
+  
+  if ( !/^(https?:)?\/\//.test(dest)) {
+    // ensure dest always begins with a foward slash
+    if (!/^\//.test(dest) ) {
+      dest = '/'+dest;
+    }
+    // add the domain prefix if it exists, removing trailing slash
+    dest = prefix.replace(/\/$/,'') + dest;
+  }
+  if (comment) {
+    return `  # ${comment}\n  RewriteRule ${status} ${match} ${dest} \n`;
+  } 
+  return `  RewriteRule ${status} ${match} ${dest} \n`;
 }
 
 
 function convertRules(result){
-  var rewrites = "";
+  var rewrites = `
+###################################################### 
+# Web.Config rewrite rules
+######################################################
+<IfModule mod_rewrite.c>
+  RewriteEngine on\n\n`;
+
   var regex = /{R:(\d{1})}/;
 
   // get the deeply nested Rule array, lodash FTW
   var ruleArray = _.get(result, 'configuration["system.webServer"].rewrite.rules.rule', []);
 
   ruleArray.forEach(r => {
+    console.log(r);
     var type = _.get(r, 'action._attributes.type');
     let match = _.get(r, 'match._attributes.url');
     let url = _.get(r, 'action._attributes.url');
+    let name = _.get(r, '_attributes.name');
 
     if (type === "Redirect" && match && url) {
     
@@ -42,21 +75,19 @@ function convertRules(result){
         url = url.replace(regex, '$' + RegExp.$1 );
       }
       
-      rewrites += createRewriteRule(match, url); 
+      rewrites += createRewriteRule(match, url, name); 
     } 
   });
 
-  return rewrites;
+  return rewrites += '\n</IfModule>\n';
 }
 
 
-function converMaps(maps){
-  var rewrites = "";
-  // { rewriteMaps: { rewriteMap: { _attributes: [Object], add: [Array] } } }
-  var addsArray = _.get(maps, 'rewriteMaps.rewriteMap.add', []);
+function convertMaps(maps){
+  var rewrites = "";;
+    var addsArray = _.get(maps, 'rewriteMaps.rewriteMap.add', []);
   
   addsArray.forEach(a=>{
-    // { _attributes: { key: '/events', value: '/acthar-live-events' } },
     let match = _.get(a, '_attributes.key');
     let dest = _.get(a, '_attributes.value');
     if (match && dest) {
@@ -64,20 +95,41 @@ function converMaps(maps){
     }
   });
 
-  return rewrites;
+  return rewrites += '\n</IfModule>\n';
 }
 
+/**
+ * Checks if the Web.config has an external config file with more rewriteMaps
+ * it will attempt to load external file and process those rules as well
+ * 
+ * @param {object} result 
+ * @returns {string}
+ */
 function checkForMaps(result) {
-  var mapsResults = "";
-  
+  var mapsResults = '';
   var rewriteMapsConfig = _.get(result, 'configuration["system.webServer"].rewrite.rewriteMaps._attributes.configSource');
   
   if (rewriteMapsConfig) {
     console.log(`An external rewrite maps config file detected: ${rewriteMapsConfig}`);
     console.log("Attempting to process that one as well");
-    var rewriteMapsConfigFile = fs.readFileSync(''+rewriteMapsConfig, {encoding: 'utf-8'});
-    var mapsResult = xmljs.xml2js(rewriteMapsConfigFile, {compact: true, spaces: 4});
-    mapsResults += converMaps(mapsResult);
+    
+    try {
+      var rewriteMapsConfigFile = fs.readFileSync(''+rewriteMapsConfig, {encoding: 'utf-8'});
+      var mapsResult = xmljs.xml2js(rewriteMapsConfigFile, {compact: true, spaces: 4});
+
+      mapsResults = `
+###################################################### 
+# Redirects processed from: ${rewriteMapsConfig} 
+######################################################
+<IfModule mod_rewrite.c>
+  RewriteEngine on\n\n`;
+
+      mapsResults += convertMaps(mapsResult);
+    } catch (e) {
+      console.log('Error loading rewriteMaps file');
+      console.log(e);
+    }
+   
   }
   return mapsResults;
 }
@@ -88,11 +140,17 @@ function saveHtaccess(h){
   console.log('done!')
 }
 
-// load web config sync
-var webconfig = fs.readFileSync(''+file, {encoding: 'utf-8'});
-var htaccess = "";
+try {
+  // load web config sync
+  var webconfig = fs.readFileSync(''+file, {encoding: 'utf-8'});
+  var result = xmljs.xml2js(webconfig, {compact: true, spaces: 4});
+} catch (e) {
+  console.error(e);
+  process.exit(1);
+}
 
-var result = xmljs.xml2js(webconfig, {compact: true, spaces: 4});
+
+var htaccess = "";
 htaccess += checkForMaps(result);
 htaccess += convertRules(result);
 
