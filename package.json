@@ -1,0 +1,25 @@
+{
+  "name": "webconfigtohtaccess",
+  "version": "1.0.0",
+  "description": "Convert Web.config rewrite rules to .htaccess file still trying!",
+  "main": "convert.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FranciscoG/webconfigtohtaccess.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/FranciscoG/webconfigtohtaccess/issues"
+  },
+  "homepage": "https://github.com/FranciscoG/webconfigtohtaccess#readme",
+  "dependencies": {
+    "lodash": "^4.17.4",
+    "minimist": "^1.2.0",
+    "xml-js": "^1.6.2"
+  }
+}

@@ -1,3 +1,5 @@
 # web.config to .htaccess
-Convert Web.config rewrite rules to .htaccess file
-still trying!
+
+Node-based CLI to convert Web.config rewrite rules to .htaccess file
+
+

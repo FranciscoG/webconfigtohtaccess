@@ -1,0 +1,9 @@
+node_modules
+.DS_Store
+Thumbs.db
+
+# in case we have some accidental test web or rewrite configs in the folder
+*.config
+
+# same with htaccess outputs
+.htaccess
