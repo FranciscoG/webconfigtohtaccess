@@ -10,6 +10,7 @@ var status = argv.status || '';
 // replace trailing forward slash
 var prefix = argv.prefix || '';
 
+var testArray = [];
 
 function displayHelp(){
   var helptext = `
@@ -19,6 +20,7 @@ function displayHelp(){
 
     --status      add an http status to your redirect
     --prefix      add a domain to the domain destination 
+    --test        create a JSON object with the results for testing
   `;
   console.log(helptext);
 }
@@ -31,29 +33,37 @@ if ( !file ) {
   process.exit(1);
 }
 
-
-function createRewriteRule(match, dest, comment) {
-  
+function formatDestination(dest) {
   if ( !/^(https?:)?\/\//.test(dest)) {
     // ensure dest always begins with a foward slash
     if (!/^\//.test(dest) ) {
       dest = '/'+dest;
     }
     // add the domain prefix if it exists, removing trailing slash
-    dest = prefix.replace(/\/$/,'') + dest;
+    return prefix.replace(/\/$/,'') + dest;
   }
+  return dest;
+}
+
+function createRewriteRule(match, dest, comment) {
+  dest = formatDestination(dest);
   if (comment) {
     return `  # ${comment}\n  RewriteRule ${status} ${match} ${dest} \n`;
   } 
-  return `  RewriteRule ${status} ${match} ${dest} \n`;
+  return `  RewriteRule ${status} ${match} ${dest}\n`;
+}
+
+function createRedirect(match, dest) {
+  dest = formatDestination(dest);
+  return `  Redirect ${status} ${match} ${dest}\n`;
 }
 
 
 function convertRules(result){
   var rewrites = `
-###################################################### 
+# ##################################################### 
 # Web.Config rewrite rules
-######################################################
+# #####################################################
 <IfModule mod_rewrite.c>
   RewriteEngine on\n\n`;
 
@@ -63,7 +73,6 @@ function convertRules(result){
   var ruleArray = _.get(result, 'configuration["system.webServer"].rewrite.rules.rule', []);
 
   ruleArray.forEach(r => {
-    console.log(r);
     var type = _.get(r, 'action._attributes.type');
     let match = _.get(r, 'match._attributes.url');
     let url = _.get(r, 'action._attributes.url');
@@ -75,14 +84,24 @@ function convertRules(result){
         url = url.replace(regex, '$' + RegExp.$1 );
       }
       
-      rewrites += createRewriteRule(match, url, name); 
+      rewrites += createRewriteRule(match, url, name);
+
+      if (argv.test) {
+        testArray.push( {'match': match, 'destination': formatDestination(url)} );
+      }
     } 
   });
 
   return rewrites += '\n</IfModule>\n';
 }
 
-
+/**
+ * Convert a list of rewriteMaps
+ * <rewriteMap> <add key="" value="" /> </rewriteMap>
+ * 
+ * @param {object} maps 
+ * @returns {string}
+ */
 function convertMaps(maps){
   var rewrites = "";;
     var addsArray = _.get(maps, 'rewriteMaps.rewriteMap.add', []);
@@ -91,7 +110,10 @@ function convertMaps(maps){
     let match = _.get(a, '_attributes.key');
     let dest = _.get(a, '_attributes.value');
     if (match && dest) {
-      rewrites += createRewriteRule(match, dest); 
+      rewrites += createRedirect(match, dest); 
+    }
+    if (argv.test) {
+      testArray.push( {'match': match, 'destination': formatDestination(dest)} );
     }
   });
 
@@ -118,9 +140,9 @@ function checkForMaps(result) {
       var mapsResult = xmljs.xml2js(rewriteMapsConfigFile, {compact: true, spaces: 4});
 
       mapsResults = `
-###################################################### 
+# ##################################################### 
 # Redirects processed from: ${rewriteMapsConfig} 
-######################################################
+# #####################################################
 <IfModule mod_rewrite.c>
   RewriteEngine on\n\n`;
 
@@ -135,7 +157,13 @@ function checkForMaps(result) {
 }
 
 function saveHtaccess(h){
-  fs.writeFileSync('.htaccess', h);
+  try {
+    fs.writeFileSync('.htaccess', h);
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
+  }
+  
   console.log('.htaccess file created in current folder')
   console.log('done!')
 }
@@ -155,3 +183,12 @@ htaccess += checkForMaps(result);
 htaccess += convertRules(result);
 
 saveHtaccess(htaccess);
+
+if (argv.test) {
+  try {
+    fs.writeFileSync('test-data.json', JSON.stringify(testArray, null, 2));
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
+  } 
+}

@@ -7,3 +7,12 @@ Thumbs.db
 
 # same with htaccess outputs
 .htaccess
+
+
+*.json
+!package.json
+!package-lock.json
+
+# I've been using this to output checker.js resuls, don't want to accidentally commit it
+*.txt
+*.tsv
